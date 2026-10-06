@@ -36,6 +36,14 @@ resource "helm_release" "external_secrets" {
     name  = "replicaCount"
     value = var.environment == "prod" ? "2" : "1"
   }
+  # Fargate 에서는 Pod IP == 노드 IP 이고 kubelet 이 10250 을 점유하므로, 차트 기본값
+  # webhook.port=10250 이면 API server → webhook 호출이 kubelet 에 닿아
+  # "x509: certificate is valid for fargate-ip-… not external-secrets-webhook.external-secrets.svc"
+  # 로 실패한다(종전 troubleshooting 의 'cert SAN 불일치' 증상). 다른 포트로 회피.
+  set {
+    name  = "webhook.port"
+    value = tostring(var.webhook_port)
+  }
 
   atomic          = true
   cleanup_on_fail = true

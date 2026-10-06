@@ -27,3 +27,13 @@ variable "tags" {
   type    = map(string)
   default = {}
 }
+
+variable "webhook_port" {
+  description = "ESO webhook 컨테이너 포트. Fargate 에서 kubelet(10250) 과 충돌하므로 10250 이외 값 필수"
+  type        = number
+  default     = 9443
+  validation {
+    condition     = var.webhook_port != 10250
+    error_message = "webhook_port 는 Fargate kubelet 포트 10250 과 겹칠 수 없습니다."
+  }
+}
