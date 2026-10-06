@@ -1,5 +1,34 @@
 # Copyright 2026 © Amazon.com and Affiliates: This deliverable is considered Developed Content as defined in the AWS Service Terms.
 
+# ─── add-on 버전 자동 해석 ───
+# addon_versions.<key> 가 null 이면 클러스터 버전에 대한 최신 호환 버전을 AWS 에서 조회한다.
+# 명시한 키는 그대로 쓴다(핀). 어느 쪽이든 결과는 output 으로 노출해 tfvars 에 기록할 수 있게 한다.
+data "aws_eks_addon_version" "coredns" {
+  addon_name         = "coredns"
+  kubernetes_version = var.cluster_version
+  most_recent        = true
+}
+
+data "aws_eks_addon_version" "kube_proxy" {
+  addon_name         = "kube-proxy"
+  kubernetes_version = var.cluster_version
+  most_recent        = true
+}
+
+data "aws_eks_addon_version" "vpc_cni" {
+  addon_name         = "vpc-cni"
+  kubernetes_version = var.cluster_version
+  most_recent        = true
+}
+
+locals {
+  addon_versions_resolved = {
+    coredns    = coalesce(var.addon_versions.coredns, data.aws_eks_addon_version.coredns.version)
+    kube_proxy = coalesce(var.addon_versions.kube_proxy, data.aws_eks_addon_version.kube_proxy.version)
+    vpc_cni    = coalesce(var.addon_versions.vpc_cni, data.aws_eks_addon_version.vpc_cni.version)
+  }
+}
+
 # ==============================================================================
 # EKS Fargate 클러스터 — terraform-aws-modules/eks/aws wrapper
 # ------------------------------------------------------------------------------
@@ -79,7 +108,7 @@ module "eks" {
   # 추가되지 않아 coredns Pod 가 Fargate 노드에 schedule 안 됨.
   cluster_addons = {
     coredns = {
-      addon_version               = var.addon_versions.coredns
+      addon_version               = local.addon_versions_resolved.coredns
       resolve_conflicts_on_update = "OVERWRITE"
       resolve_conflicts_on_create = "OVERWRITE"
       configuration_values = jsonencode({
@@ -120,12 +149,12 @@ module "eks" {
       })
     }
     kube-proxy = {
-      addon_version               = var.addon_versions.kube_proxy
+      addon_version               = local.addon_versions_resolved.kube_proxy
       resolve_conflicts_on_update = "OVERWRITE"
       resolve_conflicts_on_create = "OVERWRITE"
     }
     vpc-cni = {
-      addon_version               = var.addon_versions.vpc_cni
+      addon_version               = local.addon_versions_resolved.vpc_cni
       service_account_role_arn    = module.vpc_cni_irsa.iam_role_arn
       resolve_conflicts_on_update = "OVERWRITE"
       resolve_conflicts_on_create = "OVERWRITE"

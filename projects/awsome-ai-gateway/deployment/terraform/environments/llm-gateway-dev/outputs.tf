@@ -158,3 +158,8 @@ output "body_log_bucket" {
   value       = module.body_logging.bucket_name
   description = "gateway-proxy BODY_LOG_S3_BUCKET 값 (Firehose 레코드 상한 초과분 직행 fallback)"
 }
+
+output "eks_addon_versions_resolved" {
+  description = "실제 적용된 EKS add-on 버전(자동 해석 결과). 핀이 필요하면 tfvars eks_addon_versions 에 복사."
+  value       = module.eks.addon_versions_resolved
+}

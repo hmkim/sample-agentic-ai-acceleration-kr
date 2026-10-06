@@ -43,33 +43,20 @@ variable "application_namespace" {
 }
 
 variable "addon_versions" {
-  # 기본값 없음(=필수). main.tf 가 이 값을 그대로 cluster_addons 의 addon_version 으로
-  # 넘기고(:82 coredns / :123 kube_proxy / :128 vpc_cni), upstream 모듈은
-  #   addon_version = coalesce(try(each.value.addon_version, null),
-  #                            data.aws_eks_addon_version.this[each.key].version)
-  # 로 해석한다(terraform-aws-modules/eks/aws 20.x main.tf:746). 즉 여기에 값이 **있으면**
-  # coalesce 의 첫 인자가 이겨서 자동 조회가 죽고, 애드온은 클러스터 버전을 절대
-  # 따라오지 않는다 → minor 홉마다 이 값도 함께 올려야 한다.
-  # (자동 추종을 원하면 핀을 지우는 대신 cluster_addons 에 most_recent = true 를 주는 길도
-  #  있으나, 리뷰 없이 버전이 움직이므로 prod 에는 쓰지 않는다.)
-  #
-  # 옛 기본값이 각 k8s 버전에서 아직 제공되는지 실측(aws eks describe-addon-versions,
-  # ap-northeast-2, 2026-09-04). ✗ = 그 버전에선 목록에 없어 apply 가
-  # InvalidParameterException 으로 막힌다:
-  #   coredns    v1.11.3-eksbuild.1 : 1.32 ✓ / 1.33 ✓ / 1.34 ✓ / 1.35 ✗
-  #   kube-proxy v1.29.7-eksbuild.2 : 1.32 ✓ / 1.33 ✗              ← 가장 먼저 막히는 핀
-  #   vpc-cni    v1.18.3-eksbuild.1 : 1.32 ✓ / 1.33 ✓ / 1.34 ✓ / 1.35 ✗
-  # Fargate 전용 클러스터에서는 kube-proxy·vpc-cni DaemonSet 이 스케줄되지 않아 실 트래픽
-  # 영향은 없지만, 애드온 **리소스 자체**는 버전 검증을 받으므로 apply 는 그대로 막힌다.
-  description = "EKS add-on 버전 (환경 루트에서 필수 전달. AWS 호환성 표: https://docs.aws.amazon.com/eks/latest/userguide/managing-add-ons.html)"
-  # nullable = false: 기본값이 없더라도 명시적 `addon_versions = null` 은 통과해서
-  # main.tf 의 `var.addon_versions.coredns` 가 "Attempt to get attribute from null
-  # value" 로 죽는다(재현 확인). 이 키워드로 plan 단계에서 원인이 분명한 에러를 낸다.
+  description = <<-EOT
+    EKS add-on 버전 override. 각 키가 null(또는 미지정)이면 모듈이
+    data.aws_eks_addon_version(most_recent, kubernetes_version = cluster_version) 로
+    **클러스터 버전에 맞는 최신 호환 버전을 자동 해석**한다.
+    상수 핀은 클러스터 minor 를 올릴 때 미지원 버전이 되어 apply 가
+    InvalidParameterException 으로 죽는 사고(2026-10-06 재현)를 막기 위해 기본은 자동이다.
+    특정 버전을 고정해야 할 때만 키 단위로 명시한다.
+  EOT
   type = object({
-    coredns    = string
-    kube_proxy = string
-    vpc_cni    = string
+    coredns    = optional(string)
+    kube_proxy = optional(string)
+    vpc_cni    = optional(string)
   })
+  default  = {}
   nullable = false
 }
 
