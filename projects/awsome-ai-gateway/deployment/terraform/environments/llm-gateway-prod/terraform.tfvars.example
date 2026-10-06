@@ -19,6 +19,13 @@ environment = "prod"
 aws_region  = "ap-northeast-2"
 
 # ------------------------------------------------------------------------------
+# EKS 버전 (필수) — 배포 전 `aws eks describe-cluster-versions` 로 STANDARD_SUPPORT 최신 minor 확인
+# add-on 버전은 비워두면 클러스터 버전에 맞게 자동 해석된다(eks_addon_versions 생략).
+# prod 는 dev 가 같은 버전을 먼저 통과한 뒤 올린다.
+# ------------------------------------------------------------------------------
+eks_cluster_version = "1.36"
+
+# ------------------------------------------------------------------------------
 # Cognito Hosted UI 도메인 — 전 세계 unique 해야 함
 # ------------------------------------------------------------------------------
 # 최종 형식: {project}-{env}-{cognito_domain_suffix}.auth.{region}.amazoncognito.com

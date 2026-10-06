@@ -46,89 +46,42 @@ variable "elasticache_subnet_cidrs" {
 }
 
 variable "eks_cluster_version" {
-  # 이 값은 **라이브 클러스터와 일치**해야 한다(2026-09-04 실측: prod·dev 모두 1.31).
-  # 여기가 라이브보다 낮으면 apply 가
-  #   InvalidParameterException: Unsupported Kubernetes minor version update from 1.31 to 1.30
-  # 으로 죽는다. 클러스터 자체는 무사하지만 **prod 스택의 terraform 이 아무것도 못 돌게**
-  # 되어 다른 드리프트가 쌓인다(과거 1.30→1.29 동일 사고: docs/eks-fargate/troubleshooting.md:205).
-  # 실제로 prod 전체 plan 이 이 다운그레이드를 부비트랩으로 안고 있었다.
-  # 그래서 아래 validation 으로 다운그레이드 커밋 자체를 막는다.
+  # 필수 입력(기본값 없음). 옛 기본값 1.31 은 2025-11-26 에 표준지원이 끝나 extended 프리미엄
+  # ($0.50/h) 을 내는 버전을 "아무 설정 없이" 만들었고, 2026-11-26 이후엔 생성 자체가 불가하다.
+  # 배포 전 `aws eks describe-cluster-versions --region <r>` 로 STANDARD_SUPPORT 인 최신 minor 를
+  # 고른다(2026-10-06: 1.36 이 default). main.tf 의 check "eks_version_creatable" 가 plan 에서
+  # 생성 가능 목록과 대조해 경고한다.
   #
-  # ⚠️ 옛 주석 "minor version downgrade 불가" 는 **사실이 아니었다**. EKS User Guide
-  #    "Downgrade the Kubernetes version for an Amazon EKS cluster" 기준, in-place 업그레이드
-  #    **7일 이내**에는 직전 minor 로 롤백할 수 있다(클러스터 ACTIVE + ERROR insight 0 이 조건).
-  #    7일이 지나면 정말로 불가하며 새 클러스터 + 워크로드 이관밖에 없다.
-  #    단 Fargate 에서는 홉 후 파드를 재생성하면 kubelet skew 가 ERROR insight 로 떠서
-  #    롤백이 막히므로, 롤백하려면 새 파드를 지워야 한다 = **계획된 다운타임**이다.
-  #    "7일 롤백 가능" 을 "안전하고 공짜" 로 읽지 말 것 — prod 홉은 이 전제로 승인받아야 한다.
-  #
-  # 정책: **선언값 = 라이브(=이미 적용된 최신)**. 이 파일의 목적은 업그레이드가 아니라
-  # 후퇴 방지다. 실제 minor 업그레이드는 별개 승인 사항이며, 그때 쓸 규칙만 아래에 남긴다.
-  #
-  # 나중에 올릴 때의 규칙 (기록용, 최신 릴리스는 1.36):
-  #   - minor 는 **한 칸씩만**. 다중 점프는 API 가 거부한다(1.31→1.36 = 5회 순차 홉).
-  #   - 홉 순서는 ① 컨트롤플레인 minor → ② eks_addon_versions 를 그 버전 기본값으로 →
-  #     ③ Fargate 파드 전량 재생성(kubelet 은 파드 재생성 때만 갱신된다).
-  #     ②를 ①보다 먼저 하면 kube-proxy 가 apiserver 보다 새 버전이 되어 skew 위반이다.
-  #   - **prod 는 항상 dev 가 같은 홉을 통과한 뒤에** 올린다. 두 루트가 각자
-  #     eks_addon_versions 를 갖는 이유가 이 시차를 만들기 위해서다.
-  #   - 1.31 은 이미 extended support 다(표준지원 종료 2025-11-26 / extended 종료
-  #     2026-11-26). 즉 **1.32 로 가는 첫 홉만 하드 기한이 있고**(그 전에 안 올리면 AWS 가
-  #     강제 업그레이드하며 그건 롤백 불가), 이후 홉은 비용(클러스터당 $0.50/hr extended
-  #     프리미엄) 동기라 일정 조정이 가능하다. 1.32·1.33 도 extended 이므로 프리미엄이
-  #     실제로 사라지는 건 1.34+ 이다.
-  # nullable = false: 명시적 `eks_cluster_version = null` 은 **거부가 아니라 아래 기본값으로
-  # 폴백**한다(실측 2026-09-07: default 가 있는 변수는 null → default, 에러 없음).
-  # 즉 이 키워드의 효과는 "null 이 downstream 으로 전파되지 않는다" 뿐이고, 잘못된 *값* 을
-  # 막는 건 아래 validation 이다. default 가 **없는** 변수는 반대로 null 이
-  # "required variable may not be set to null" 로 죽는다(modules/eks-fargate/variables.tf).
+  # 라이브 클러스터가 있는 환경에서는 **선언값 = 라이브** 를 유지한다(라이브보다 낮게 적으면
+  # apply 가 InvalidParameterException 으로 죽고 prod 스택의 terraform 이 멈춘다). minor 업그레이드는
+  # 한 칸씩, 순서는 ① 컨트롤플레인 → ② add-on(자동 해석) → ③ Fargate 파드 전량 재생성.
+  # **prod 는 항상 dev 가 같은 홉을 통과한 뒤에** 올린다. 7일 내 롤백은 "ERROR insight 0" 이
+  # 조건이라 Fargate 파드 재생성 후에는 계획된 다운타임을 전제로 승인받아야 한다.
   type     = string
-  default  = "1.31"
   nullable = false
 
   validation {
-    condition = (
-      can(regex("^1\\.[0-9]+$", var.eks_cluster_version)) &&
-      tonumber(split(".", var.eks_cluster_version)[1]) >= 31
-    )
-    error_message = "라이브 EKS 가 1.31 이므로 1.31 미만은 apply 시 InvalidParameterException 이다(다운그레이드 커밋 방지 가드). 형식은 1.<minor>."
+    condition     = can(regex("^1\\.[0-9]+$", var.eks_cluster_version))
+    error_message = "형식은 1.<minor> (예: \"1.36\")."
   }
 }
 
 variable "eks_addon_versions" {
-  # 값은 **라이브와 정확히 일치**시켜 둔다(aws eks describe-addon 실측 2026-09-04:
-  # prod·dev 3개 애드온 모두 아래와 동일, 전부 ACTIVE). 목적은 애드온 업그레이드가
-  # 아니라 "plan 이 no-op" 인 상태를 유지해 의도치 않은 롤을 막는 것이다 —
-  # coredns 는 클러스터 DNS 이고 prod 는 replicaCount 3 이라 버전만 바꿔도 실제 파드 롤이다.
-  # 모듈이 이 값을 그대로 addon_version 에 넘겨 자동 추종이 없으므로
-  # (modules/eks-fargate/variables.tf 의 addon_versions 주석 참고)
-  # 애드온은 클러스터 minor 를 올려도 여기 손대지 않으면 그대로 남는다.
-  #
-  # 나중에 minor 홉을 할 때 쓸 버전 표 (실측, ap-northeast-2 / vpc-cni 는 1.31~1.36 동일):
-  #   1.32  coredns v1.11.4-eksbuild.51  kube-proxy v1.32.13-eksbuild.24  vpc-cni v1.22.4-eksbuild.3
-  #   1.33  coredns v1.12.4-eksbuild.29  kube-proxy v1.33.10-eksbuild.21
-  #   1.34  coredns v1.12.4-eksbuild.29  kube-proxy v1.34.6-eksbuild.21
-  #   1.35  coredns v1.13.2-eksbuild.21  kube-proxy v1.35.3-eksbuild.21
-  #   1.36  coredns v1.14.3-eksbuild.14  kube-proxy v1.36.0-eksbuild.17
-  # ⚠️ 현재 핀이 각 버전에서 아직 제공되는지: coredns·vpc-cni 는 1.34 까지 ✓ / 1.35 ✗,
-  #    kube-proxy 는 1.32 까지 ✓ / 1.33 ✗ (그 버전에서는 apply 가
-  #    InvalidParameterException 으로 막히므로 홉 전에 이 블록을 먼저 올려야 한다).
-  #    올릴 때는 트래픽 저점 창에서 하고 coredns 파드 3/3 Ready 를 확인할 것.
-  # prod 는 항상 dev 가 같은 값으로 먼저 통과한 뒤에 올린다.
+  # add-on 버전 override. **기본은 비움({}) = 자동 해석**: modules/eks-fargate 가
+  # data.aws_eks_addon_version(most_recent, kubernetes_version = eks_cluster_version) 로
+  # 클러스터 버전에 맞는 최신 호환 버전을 고른다. 과거의 상수 핀(coredns v1.11.3 /
+  # kube-proxy v1.29.7 / vpc-cni v1.18.3)은 1.33+ 에서 kube-proxy, 1.35+ 에서 3종 모두
+  # 미지원이라 1.34 직접 배포가 apply 단계에서 실패했다(2026-10-06 재현).
+  # prod 에서 "plan 이 no-op" 인 상태를 유지하려면 output `eks_addon_versions_resolved` 값을
+  # 키 단위로 여기 복사해 핀하면 된다(dev 가 같은 값으로 먼저 통과한 뒤). coredns 는 클러스터
+  # DNS 이고 prod 는 replicaCount 3 이라 버전이 바뀌면 실제 파드 롤이 일어나므로 트래픽 저점
+  # 창에서 적용하고 coredns 파드 3/3 Ready 를 확인할 것.
   type = object({
-    coredns    = string
-    kube_proxy = string
-    vpc_cni    = string
+    coredns    = optional(string)
+    kube_proxy = optional(string)
+    vpc_cni    = optional(string)
   })
-  # nullable = false: 명시적 `eks_addon_versions = null` 은 **아래 default 로 폴백**한다
-  # (실측: default 가 있으면 null → default, 거부가 아니다). 그 덕에 모듈의
-  # `var.addon_versions.coredns` 가 "Attempt to get attribute from null value" 로
-  # 죽는 경로가 막힌다 — 거부가 아니라 폴백으로 막는 것이다.
-  default = {
-    coredns    = "v1.11.3-eksbuild.1"
-    kube_proxy = "v1.29.7-eksbuild.2"
-    vpc_cni    = "v1.18.3-eksbuild.1"
-  }
+  default  = {}
   nullable = false
 }
 

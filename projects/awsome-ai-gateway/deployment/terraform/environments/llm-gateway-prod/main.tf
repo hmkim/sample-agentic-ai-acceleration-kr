@@ -7,6 +7,20 @@
 # 다른 계정 이식성: account_id 동적 조회 → 전역 unique 리소스명 자동 생성.
 data "aws_caller_identity" "current" {}
 
+# 생성 가능한 EKS 버전 목록 — eks_cluster_version 이 여기 없으면 plan 단계에서 경고한다
+# (존재하지 않는 minor, 또는 extended 까지 끝나 생성 불가가 된 minor 를 커밋하는 사고 방지).
+data "aws_eks_cluster_versions" "available" {}
+
+check "eks_version_creatable" {
+  assert {
+    condition = contains(
+      [for v in data.aws_eks_cluster_versions.available.cluster_versions : v.cluster_version],
+      var.eks_cluster_version
+    )
+    error_message = "eks_cluster_version=${var.eks_cluster_version} 은(는) 이 리전에서 생성/지원되는 버전 목록에 없습니다. `aws eks describe-cluster-versions` 를 확인하세요."
+  }
+}
+
 locals {
   # Cognito 도메인 suffix 미지정("")이면 account_id 로 자동 생성(전 세계 unique).
   cognito_domain_suffix = (

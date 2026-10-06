@@ -42,3 +42,8 @@ output "kms_key_arn" {
 output "fargate_profile_arns" {
   value = [for k, v in module.eks.fargate_profiles : v.fargate_profile_arn]
 }
+
+output "addon_versions_resolved" {
+  description = "실제 적용된 add-on 버전(자동 해석 결과 포함). 핀이 필요하면 이 값을 tfvars eks_addon_versions 에 복사."
+  value       = local.addon_versions_resolved
+}
